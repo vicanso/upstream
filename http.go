@@ -32,6 +32,8 @@ const (
 	PolicyRandom = "random"
 	// PolicyRoundRobin round robin upstream
 	PolicyRoundRobin = "roundRobin"
+	// PolicyLeastconn leastconn upstream
+	PolicyLeastconn = "leastconn"
 )
 
 type (
@@ -41,8 +43,10 @@ type (
 		URL *url.URL
 		// Backup backup upstream
 		Backup bool
-		// Status upstream status(1 healthy)
+		// status upstream status(1 healthy)
 		status int32
+		// value upstream value(such as connection)
+		value uint32
 	}
 	// HTTP http upstream
 	HTTP struct {
@@ -86,6 +90,16 @@ func portCheck(network, ip, port string, timeout time.Duration) (healthy bool, e
 	defer conn.Close()
 	healthy = true
 	return
+}
+
+// Inc increase value of upstream
+func (hu *HTTPUpstream) Inc() {
+	atomic.AddUint32(&hu.value, 1)
+}
+
+// Dec decrease value o upstream
+func (hu *HTTPUpstream) Dec() {
+	atomic.AddUint32(&hu.value, ^uint32(0))
 }
 
 func (h *HTTP) addUpstream(upstream string, backup bool) (err error) {
@@ -257,11 +271,15 @@ func (h *HTTP) GetAvailableUpstreamList() (upstreamList []*HTTPUpstream) {
 func (h *HTTP) GetAvailableUpstream(index uint32) (upstream *HTTPUpstream) {
 	preferredList, backupList := h.getDivideAvailableUpstreamList()
 
-	preferredCount := uint32(len(preferredList))
-	backupCount := uint32(len(backupList))
+	upstreamList := preferredList
+	if len(upstreamList) == 0 {
+		upstreamList = backupList
+	}
+
+	upstreamCount := uint32(len(upstreamList))
 
 	// 如果无可用backend
-	if preferredCount+backupCount == 0 {
+	if upstreamCount == 0 {
 		return
 	}
 
@@ -272,16 +290,23 @@ func (h *HTTP) GetAvailableUpstream(index uint32) (upstream *HTTPUpstream) {
 		index = rand.Uint32()
 	case PolicyRoundRobin:
 		index = atomic.AddUint32(&h.roundRobin, 1)
+	case PolicyLeastconn:
+		var maxConn uint32
+		// 查找连接数最少的 upstream
+		for i, upstream := range upstreamList {
+			v := atomic.LoadUint32(&upstream.value)
+			if v >= maxConn {
+				maxConn = v
+				index = uint32(i)
+			}
+		}
 	default:
 		// 默认的使用参数index
 		break
 	}
 
-	if preferredCount != 0 {
-		upstream = preferredList[index%preferredCount]
-	} else if backupCount != 0 {
-		upstream = backupList[index%backupCount]
-	}
+	upstream = upstreamList[index%upstreamCount]
+
 	return
 }
 

@@ -176,6 +176,40 @@ func TestGetAvalidUpstream(t *testing.T) {
 			t.Fatalf("backup stream should not be used")
 		}
 	}
+
+	h.Policy = PolicyLeastconn
+	for _, upstream := range h.upstreamList {
+		upstream.status = UpstreamHealthy
+		upstream.value = 1
+	}
+	// 将第二个upstream 的value设置为0
+	secondUpstream := h.upstreamList[1]
+	secondUpstream.value = 0
+	for i := 0; i < 100; i++ {
+		target := h.GetAvailableUpstream(1)
+		if target == secondUpstream {
+			t.Fatalf("least conn policy fail")
+		}
+	}
+	// 第二个upstream 连接数增加
+	secondUpstream.Inc()
+	// 所有的连接数一致，则选择第一个
+	firstUpstream := h.upstreamList[0]
+	for i := 0; i < 100; i++ {
+		target := h.GetAvailableUpstream(1)
+		if target == firstUpstream {
+			t.Fatalf("least conn policy fail")
+		}
+	}
+	// 第二个upstream 连接数减少
+	secondUpstream.Dec()
+	for i := 0; i < 100; i++ {
+		target := h.GetAvailableUpstream(1)
+		if target == secondUpstream {
+			t.Fatalf("least conn policy fail")
+		}
+	}
+
 }
 
 func TestOnStatus(t *testing.T) {
