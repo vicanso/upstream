@@ -8,7 +8,6 @@ It's easy to get upstream from upstream list. It support http request check or t
 
 ```go
 uh := upstream.HTTP{
-  Policy: upstream.PolicyRoundRobin,
   // use http request check
   Ping: "/ping",
 }
@@ -18,6 +17,6 @@ uh.Add("http://127.0.0.1:7002")
 uh.DoHealthCheck()
 // do health check loop(default interval: 5s )
 go uh.StartHealthCheck()
-// get valid upstream
-upstream := uh.GetValidUpstream(0)
+// get valid upstream by round robin
+upstream := uh.PolicyRoundRobin()
 ```

@@ -134,24 +134,21 @@ func TestGetAvalidUpstream(t *testing.T) {
 	}
 
 	// first
-	h.Policy = PolicyFirst
 	for range h.upstreamList {
-		target := h.GetAvailableUpstream(1)
+		target := h.PolicyFirst()
 		if target != h.upstreamList[0] {
 			t.Fatalf("get first upstream fail")
 		}
 	}
 
-	h.Policy = PolicyRoundRobin
 	for index := range h.upstreamList {
-		target := h.GetAvailableUpstream(1)
+		target := h.PolicyRoundRobin()
 		i := (index + 1) % len(h.upstreamList)
 		if target != h.upstreamList[i] {
 			t.Fatalf("get round robin upstream fail")
 		}
 	}
 
-	h.Policy = PolicyRandom
 	// 除第一个，所有upstream 设置为sick
 	for index, upstream := range h.upstreamList {
 		if index == 0 {
@@ -160,24 +157,22 @@ func TestGetAvalidUpstream(t *testing.T) {
 		upstream.status = UpstreamSick
 	}
 	for i := 0; i < 100; i++ {
-		target := h.GetAvailableUpstream(1)
+		target := h.PolicyRandom()
 		if target != h.upstreamList[0] {
 			t.Fatalf("get random upstream fail")
 		}
 	}
 
-	h.Policy = PolicyRoundRobin
 	h.AddBackup("http://127.0.0.1:7003")
 	lastUpstream := h.upstreamList[len(h.upstreamList)-1]
 	lastUpstream.status = UpstreamHealthy
 	for i := 0; i < 100; i++ {
-		target := h.GetAvailableUpstream(1)
+		target := h.PolicyRoundRobin()
 		if target == lastUpstream {
 			t.Fatalf("backup stream should not be used")
 		}
 	}
 
-	h.Policy = PolicyLeastconn
 	for _, upstream := range h.upstreamList {
 		upstream.status = UpstreamHealthy
 		upstream.value = 1
@@ -186,9 +181,9 @@ func TestGetAvalidUpstream(t *testing.T) {
 	secondUpstream := h.upstreamList[1]
 	secondUpstream.value = 0
 	for i := 0; i < 100; i++ {
-		target := h.GetAvailableUpstream(1)
-		if target == secondUpstream {
-			t.Fatalf("least conn policy fail")
+		target := h.PolicyLeastconn()
+		if target != secondUpstream {
+			t.Fatalf("least conn policy fail(should be second upstream)")
 		}
 	}
 	// 第二个upstream 连接数增加
@@ -196,17 +191,17 @@ func TestGetAvalidUpstream(t *testing.T) {
 	// 所有的连接数一致，则选择第一个
 	firstUpstream := h.upstreamList[0]
 	for i := 0; i < 100; i++ {
-		target := h.GetAvailableUpstream(1)
-		if target == firstUpstream {
-			t.Fatalf("least conn policy fail")
+		target := h.PolicyLeastconn()
+		if target != firstUpstream {
+			t.Fatalf("least conn policy fail(should be first upstream)")
 		}
 	}
 	// 第二个upstream 连接数减少
 	secondUpstream.Dec()
 	for i := 0; i < 100; i++ {
-		target := h.GetAvailableUpstream(1)
-		if target == secondUpstream {
-			t.Fatalf("least conn policy fail")
+		target := h.PolicyLeastconn()
+		if target != secondUpstream {
+			t.Fatalf("least conn policy fail(should be second upstream again)")
 		}
 	}
 
@@ -238,10 +233,8 @@ func TestOnStatus(t *testing.T) {
 	}
 }
 
-func BenchmarkGetAvalidUpstreamList(b *testing.B) {
-	h := HTTP{
-		Policy: PolicyRoundRobin,
-	}
+func BenchmarkRoundRobin(b *testing.B) {
+	h := HTTP{}
 	h.Add("http://127.0.0.1:7001")
 	h.Add("http://127.0.0.1:7002")
 	h.Add("http://127.0.0.1:7003")
@@ -251,6 +244,21 @@ func BenchmarkGetAvalidUpstreamList(b *testing.B) {
 
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		h.GetAvailableUpstreamList()
+		h.PolicyRoundRobin()
+	}
+}
+
+func BenchmarkLeastConn(b *testing.B) {
+	h := HTTP{}
+	h.Add("http://127.0.0.1:7001")
+	h.Add("http://127.0.0.1:7002")
+	h.Add("http://127.0.0.1:7003")
+	for _, upstream := range h.upstreamList {
+		upstream.status = UpstreamHealthy
+	}
+
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		h.PolicyLeastconn()
 	}
 }

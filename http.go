@@ -15,6 +15,11 @@ const (
 	UpstreamSick int32 = iota
 	// UpstreamHealthy upstream healthy
 	UpstreamHealthy
+
+	// UserAgent user agent for http check
+	UserAgent = "upstream/go"
+
+	maxUint32 = ^uint32(0)
 )
 
 const (
@@ -25,15 +30,6 @@ const (
 
 	defaultHealthCheckCount = 5
 	defaultMaxFailCount     = 2
-
-	// PolicyFirst first avalid upstream
-	PolicyFirst = "first"
-	// PolicyRandom random avalid upstream
-	PolicyRandom = "random"
-	// PolicyRoundRobin round robin upstream
-	PolicyRoundRobin = "roundRobin"
-	// PolicyLeastconn leastconn upstream
-	PolicyLeastconn = "leastconn"
 )
 
 type (
@@ -50,8 +46,6 @@ type (
 	}
 	// HTTP http upstream
 	HTTP struct {
-		// Policy policy
-		Policy string
 		// Ping http ping url
 		Ping string
 		// Timeout timeout for health check
@@ -70,8 +64,6 @@ type (
 		roundRobin uint32
 		// statusListeners status listener list
 		statusListeners []StatusListener
-
-		sync.RWMutex
 	}
 	// StatusListener upstream status listener
 	StatusListener func(status int32, upstream *HTTPUpstream)
@@ -107,8 +99,6 @@ func (h *HTTP) addUpstream(upstream string, backup bool) (err error) {
 	if err != nil {
 		return
 	}
-	h.Lock()
-	defer h.Unlock()
 	if h.upstreamList == nil {
 		h.upstreamList = make([]*HTTPUpstream, 0)
 	}
@@ -132,7 +122,7 @@ func (h *HTTP) AddBackup(upstream string) (err error) {
 // ping health check ping
 func (h *HTTP) ping(info *url.URL) (healthy bool, err error) {
 	timeout := h.Timeout
-	if timeout.Nanoseconds() == 0 {
+	if timeout == 0 {
 		timeout = defaultTimeout
 	}
 	// 如果没有配置ping，则检测端口
@@ -152,6 +142,7 @@ func (h *HTTP) ping(info *url.URL) (healthy bool, err error) {
 	if err != nil {
 		return
 	}
+	req.Header.Set("User-Agent", UserAgent)
 	resp, err := client.Do(req)
 	if err != nil {
 		return
@@ -241,8 +232,6 @@ func (h *HTTP) getDivideAvailableUpstreamList() (preferredList []*HTTPUpstream, 
 	preferredList = make([]*HTTPUpstream, 0, len(h.upstreamList))
 	// 备份使用的 upstream
 	backupList = make([]*HTTPUpstream, 0, len(h.upstreamList)/2)
-	h.RLock()
-	defer h.RUnlock()
 	// 从当前 upstream 列表中筛选
 	for _, upstream := range h.upstreamList {
 		status := atomic.LoadInt32(&upstream.status)
@@ -267,6 +256,51 @@ func (h *HTTP) GetAvailableUpstreamList() (upstreamList []*HTTPUpstream) {
 	return
 }
 
+// PolicyFirst get the first backend
+func (h *HTTP) PolicyFirst() *HTTPUpstream {
+	return h.GetAvailableUpstream(0)
+}
+
+// PolicyRandom get random backend
+func (h *HTTP) PolicyRandom() *HTTPUpstream {
+	return h.GetAvailableUpstream(rand.Uint32())
+}
+
+// PolicyRoundRobin get backend round robin
+func (h *HTTP) PolicyRoundRobin() *HTTPUpstream {
+	index := atomic.AddUint32(&h.roundRobin, 1)
+	return h.GetAvailableUpstream(index)
+}
+
+// PolicyLeastconn get least connection backend
+func (h *HTTP) PolicyLeastconn() *HTTPUpstream {
+	preferredList, backupList := h.getDivideAvailableUpstreamList()
+
+	upstreamList := preferredList
+	if len(upstreamList) == 0 {
+		upstreamList = backupList
+	}
+	upstreamCount := uint32(len(upstreamList))
+
+	// 如果无可用backend
+	if upstreamCount == 0 {
+		return nil
+	}
+
+	leastConn := maxUint32
+	index := 0
+	// 查找连接数最少的 upstream
+	for i, upstream := range upstreamList {
+		v := atomic.LoadUint32(&upstream.value)
+		if v < leastConn {
+			leastConn = v
+			index = i
+		}
+	}
+
+	return upstreamList[uint32(index)%upstreamCount]
+}
+
 // GetAvailableUpstream get available upstream
 func (h *HTTP) GetAvailableUpstream(index uint32) (upstream *HTTPUpstream) {
 	preferredList, backupList := h.getDivideAvailableUpstreamList()
@@ -281,28 +315,6 @@ func (h *HTTP) GetAvailableUpstream(index uint32) (upstream *HTTPUpstream) {
 	// 如果无可用backend
 	if upstreamCount == 0 {
 		return
-	}
-
-	switch h.Policy {
-	case PolicyFirst:
-		index = 0
-	case PolicyRandom:
-		index = rand.Uint32()
-	case PolicyRoundRobin:
-		index = atomic.AddUint32(&h.roundRobin, 1)
-	case PolicyLeastconn:
-		var maxConn uint32
-		// 查找连接数最少的 upstream
-		for i, upstream := range upstreamList {
-			v := atomic.LoadUint32(&upstream.value)
-			if v >= maxConn {
-				maxConn = v
-				index = uint32(i)
-			}
-		}
-	default:
-		// 默认的使用参数index
-		break
 	}
 
 	upstream = upstreamList[index%upstreamCount]
