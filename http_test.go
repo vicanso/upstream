@@ -204,7 +204,21 @@ func TestGetAvalidUpstream(t *testing.T) {
 			t.Fatalf("least conn policy fail(should be second upstream again)")
 		}
 	}
+}
 
+func TestHTTPUpstreamStatusChange(t *testing.T) {
+	hu := &HTTPUpstream{}
+	if hu.status != UpstreamSick {
+		t.Fatalf("status should be sick when init")
+	}
+	hu.Healthy()
+	if hu.status != UpstreamHealthy {
+		t.Fatalf("status should be healthy")
+	}
+	hu.Sick()
+	if hu.status != UpstreamSick {
+		t.Fatalf("status should be sick")
+	}
 }
 
 func TestOnStatus(t *testing.T) {

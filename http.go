@@ -94,6 +94,16 @@ func (hu *HTTPUpstream) Dec() {
 	atomic.AddUint32(&hu.value, ^uint32(0))
 }
 
+// Healthy set the http upstream to be healthy
+func (hu *HTTPUpstream) Healthy() {
+	atomic.StoreInt32(&hu.status, UpstreamHealthy)
+}
+
+// Sick set the http upstream to be sick
+func (hu *HTTPUpstream) Sick() {
+	atomic.StoreInt32(&hu.status, UpstreamSick)
+}
+
 func (h *HTTP) addUpstream(upstream string, backup bool) (err error) {
 	info, err := url.Parse(upstream)
 	if err != nil {
