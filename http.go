@@ -15,6 +15,8 @@ const (
 	UpstreamSick int32 = iota
 	// UpstreamHealthy upstream healthy
 	UpstreamHealthy
+	// UpstreamIgnore ignore upstream
+	UpstreamIgnore
 
 	// UserAgent user agent for http check
 	UserAgent = "upstream/go"
@@ -102,6 +104,16 @@ func (hu *HTTPUpstream) Healthy() {
 // Sick set the http upstream to be sick
 func (hu *HTTPUpstream) Sick() {
 	atomic.StoreInt32(&hu.status, UpstreamSick)
+}
+
+// Ignore ignore upstream
+func (hu *HTTPUpstream) Ignore() {
+	atomic.StoreInt32(&hu.status, UpstreamIgnore)
+}
+
+// Status get upstream status
+func (hu *HTTPUpstream) Status() int32 {
+	return hu.status
 }
 
 func (h *HTTP) addUpstream(upstream string, backup bool) (err error) {
@@ -194,6 +206,12 @@ func (h *HTTP) DoHealthCheck() {
 
 		pStatus := &upstream.status
 		currentStatus := atomic.LoadInt32(pStatus)
+
+		// 如果当前upstream 设置为ignore，则忽略
+		if currentStatus == UpstreamIgnore {
+			return
+		}
+
 		status := UpstreamHealthy
 		if int(failCount) >= maxFailCount {
 			status = UpstreamSick
