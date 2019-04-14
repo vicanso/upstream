@@ -220,9 +220,9 @@ func TestHTTPUpstreamStatusChange(t *testing.T) {
 		t.Fatalf("status should be sick")
 	}
 
-	hu.Ignore()
-	if hu.Status() != UpstreamIgnore {
-		t.Fatalf("status should be ignore")
+	hu.Ignored()
+	if hu.Status() != UpstreamIgnored {
+		t.Fatalf("status should be ignored")
 	}
 }
 
