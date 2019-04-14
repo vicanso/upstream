@@ -221,7 +221,11 @@ func (h *HTTP) StartHealthCheck() {
 	}
 	ticker := time.NewTicker(interval)
 
-	atomic.StoreInt32(&h.healthCheckStatus, healthChecking)
+	v := atomic.SwapInt32(&h.healthCheckStatus, healthChecking)
+	// 如果已经是启动状态，则退出
+	if v == healthChecking {
+		return
+	}
 	for range ticker.C {
 		v := atomic.LoadInt32(&h.healthCheckStatus)
 		// 如果已停止health check，则退出
