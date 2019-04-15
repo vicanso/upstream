@@ -252,6 +252,14 @@ func TestOnStatus(t *testing.T) {
 	}
 }
 
+func TestConvertStatusToString(t *testing.T) {
+	if ConvertStatusToString(UpstreamSick) != "sick" ||
+		ConvertStatusToString(UpstreamHealthy) != "healthy" ||
+		ConvertStatusToString(UpstreamIgnored) != "ignored" {
+		t.Fatalf("convert status fail")
+	}
+}
+
 func BenchmarkRoundRobin(b *testing.B) {
 	h := HTTP{}
 	h.Add("http://127.0.0.1:7001")

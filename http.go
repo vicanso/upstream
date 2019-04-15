@@ -86,6 +86,18 @@ func portCheck(network, ip, port string, timeout time.Duration) (healthy bool, e
 	return
 }
 
+// ConvertStatusToString convert status to string
+func ConvertStatusToString(status int32) string {
+	switch status {
+	case UpstreamSick:
+		return "sick"
+	case UpstreamHealthy:
+		return "healthy"
+	default:
+		return "ignored"
+	}
+}
+
 // Inc increase value of upstream
 func (hu *HTTPUpstream) Inc() {
 	atomic.AddUint32(&hu.value, 1)
