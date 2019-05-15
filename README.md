@@ -12,7 +12,7 @@ uh := upstream.HTTP{
   Ping: "/ping",
 }
 uh.Add("http://127.0.0.1:7001")
-uh.Add("http://127.0.0.1:7002")
+uh.AddBackup("http://127.0.0.1:7002")
 // do health check
 uh.DoHealthCheck()
 // do health check loop(default interval: 5s )

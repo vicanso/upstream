@@ -125,7 +125,13 @@ func (hu *HTTPUpstream) Ignored() {
 
 // Status get upstream status
 func (hu *HTTPUpstream) Status() int32 {
-	return hu.status
+	return atomic.LoadInt32(&hu.status)
+}
+
+// StatusDesc get upstream status description
+func (hu *HTTPUpstream) StatusDesc() string {
+	v := atomic.LoadInt32(&hu.status)
+	return ConvertStatusToString(v)
 }
 
 func (h *HTTP) addUpstream(upstream string, backup bool) (err error) {
@@ -246,7 +252,7 @@ func (h *HTTP) DoHealthCheck() {
 // StartHealthCheck start health check
 func (h *HTTP) StartHealthCheck() {
 	interval := h.Interval
-	if interval.Nanoseconds() == 0 {
+	if interval == 0 {
 		interval = defaultCheckInterval
 	}
 	ticker := time.NewTicker(interval)

@@ -208,7 +208,7 @@ func TestGetAvalidUpstream(t *testing.T) {
 
 func TestHTTPUpstreamStatusChange(t *testing.T) {
 	hu := &HTTPUpstream{}
-	if hu.Status() != UpstreamSick {
+	if hu.Status() != UpstreamSick || hu.StatusDesc() != "sick" {
 		t.Fatalf("status should be sick when init")
 	}
 	hu.Healthy()
