@@ -11,8 +11,10 @@ import (
 )
 
 const (
+	// UpstreamUnknown upstream unknown
+	UpstreamUnknown int32 = iota
 	// UpstreamSick upstream sick
-	UpstreamSick int32 = iota
+	UpstreamSick
 	// UpstreamHealthy upstream healthy
 	UpstreamHealthy
 	// UpstreamIgnored upstream ignored
@@ -89,6 +91,8 @@ func portCheck(network, ip, port string, timeout time.Duration) (healthy bool, e
 // ConvertStatusToString convert status to string
 func ConvertStatusToString(status int32) string {
 	switch status {
+	case UpstreamUnknown:
+		return "unknown"
 	case UpstreamSick:
 		return "sick"
 	case UpstreamHealthy:
