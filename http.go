@@ -27,6 +27,17 @@ const (
 )
 
 const (
+	// PolicyFirst get the first avaliable upstream
+	PolicyFirst = "first"
+	// PolicyRandom get random avaliable upstream
+	PolicyRandom = "random"
+	// PolicyRoundRobin get avaliable upstream round robin
+	PolicyRoundRobin = "roundRobin"
+	// PolicyLeastconn get least connection upstream
+	PolicyLeastconn = "leastconn"
+)
+
+const (
 	defaultTimeout             = time.Second * 3
 	defaultCheckInterval       = time.Second * 5
 	healthChecking       int32 = 1
@@ -37,6 +48,9 @@ const (
 )
 
 type (
+	// Done done function for upstream
+	// it should be call when upstream is used done
+	Done func()
 	// HTTPUpstream http upstream
 	HTTPUpstream struct {
 		// URL upstream url
@@ -60,6 +74,8 @@ type (
 		HealthCheckCount int
 		// MaxFailCount max fail count, if fail count >=, it will be set to sick
 		MaxFailCount int
+		// Policy upstream choose policy
+		Policy string
 
 		// healthCheckStatus health check status(1 checking)
 		healthCheckStatus int32
@@ -373,6 +389,27 @@ func (h *HTTP) GetAvailableUpstream(index uint32) (upstream *HTTPUpstream) {
 
 	upstream = upstreamList[index%upstreamCount]
 
+	return
+}
+
+// Next get the next available upstream by policy
+func (h *HTTP) Next() (upstream *HTTPUpstream, done Done) {
+	switch h.Policy {
+	case PolicyFirst:
+		upstream = h.PolicyFirst()
+	case PolicyRandom:
+		upstream = h.PolicyRandom()
+	case PolicyLeastconn:
+		upstream = h.PolicyLeastconn()
+		if upstream != nil {
+			done = func() {
+				atomic.AddUint32(&upstream.value, ^uint32(0))
+			}
+		}
+
+	default:
+		upstream = h.PolicyRoundRobin()
+	}
 	return
 }
 

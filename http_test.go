@@ -192,6 +192,26 @@ func TestGetAvalidUpstream(t *testing.T) {
 		target := h.PolicyLeastconn()
 		assert.Equal(secondUpstream, target, "least conn policy should return least conn's upstream")
 	}
+
+	h.Policy = PolicyLeastconn
+	upstream, done := h.Next()
+	assert.NotNil(upstream)
+	assert.NotNil(done)
+
+	h.Policy = PolicyFirst
+	upstream, done = h.Next()
+	assert.NotNil(upstream)
+	assert.Nil(done)
+
+	h.Policy = PolicyRandom
+	upstream, done = h.Next()
+	assert.NotNil(upstream)
+	assert.Nil(done)
+
+	h.Policy = ""
+	upstream, done = h.Next()
+	assert.NotNil(upstream)
+	assert.Nil(done)
 }
 
 func TestHTTPUpstreamStatusChange(t *testing.T) {
