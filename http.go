@@ -402,6 +402,7 @@ func (h *HTTP) Next() (upstream *HTTPUpstream, done Done) {
 	case PolicyLeastconn:
 		upstream = h.PolicyLeastconn()
 		if upstream != nil {
+			atomic.AddUint32(&upstream.value, 1)
 			done = func() {
 				atomic.AddUint32(&upstream.value, ^uint32(0))
 			}
