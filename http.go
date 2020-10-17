@@ -6,8 +6,9 @@ import (
 	"net/http"
 	"net/url"
 	"sync"
-	"sync/atomic"
 	"time"
+
+	"go.uber.org/atomic"
 )
 
 const (
@@ -19,10 +20,11 @@ const (
 	UpstreamHealthy
 	// UpstreamIgnored upstream ignored
 	UpstreamIgnored
+)
 
+const (
 	// UserAgent user agent for http check
 	UserAgent = "upstream/go"
-
 	maxUint32 = ^uint32(0)
 )
 
@@ -58,9 +60,9 @@ type (
 		// Backup backup upstream
 		Backup bool
 		// status upstream status(1 healthy)
-		status int32
-		// value upstream value(such as connection)
-		value uint32
+		status atomic.Int32
+		// value upstream value(such as connection count)
+		value atomic.Uint32
 	}
 	// HTTP http upstream
 	HTTP struct {
@@ -78,10 +80,10 @@ type (
 		Policy string
 
 		// healthCheckStatus health check status(1 checking)
-		healthCheckStatus int32
+		healthCheckStatus atomic.Int32
 		upstreamList      []*HTTPUpstream
 		// roundRobin round robin count
-		roundRobin uint32
+		roundRobin atomic.Uint32
 		// statusListeners status listener list
 		statusListeners []StatusListener
 	}
@@ -120,37 +122,37 @@ func ConvertStatusToString(status int32) string {
 
 // Inc increase value of upstream
 func (hu *HTTPUpstream) Inc() {
-	atomic.AddUint32(&hu.value, 1)
+	hu.value.Inc()
 }
 
 // Dec decrease value o upstream
 func (hu *HTTPUpstream) Dec() {
-	atomic.AddUint32(&hu.value, ^uint32(0))
+	hu.value.Dec()
 }
 
 // Healthy set the http upstream to be healthy
 func (hu *HTTPUpstream) Healthy() {
-	atomic.StoreInt32(&hu.status, UpstreamHealthy)
+	hu.status.Store(UpstreamHealthy)
 }
 
 // Sick set the http upstream to be sick
 func (hu *HTTPUpstream) Sick() {
-	atomic.StoreInt32(&hu.status, UpstreamSick)
+	hu.status.Store(UpstreamSick)
 }
 
 // Ignored set the http upstream to be ignored
 func (hu *HTTPUpstream) Ignored() {
-	atomic.StoreInt32(&hu.status, UpstreamIgnored)
+	hu.status.Store(UpstreamIgnored)
 }
 
 // Status get upstream status
 func (hu *HTTPUpstream) Status() int32 {
-	return atomic.LoadInt32(&hu.status)
+	return hu.status.Load()
 }
 
 // StatusDesc get upstream status description
 func (hu *HTTPUpstream) StatusDesc() string {
-	v := atomic.LoadInt32(&hu.status)
+	v := hu.Status()
 	return ConvertStatusToString(v)
 }
 
@@ -207,6 +209,7 @@ func (h *HTTP) ping(info *url.URL) (healthy bool, err error) {
 	if err != nil {
 		return
 	}
+	defer resp.Body.Close()
 	statusCode := resp.StatusCode
 	if statusCode >= http.StatusOK && statusCode < http.StatusBadRequest {
 		healthy = true
@@ -228,7 +231,7 @@ func (h *HTTP) DoHealthCheck() {
 	// 对upstream 进行状态检测
 	doCheck := func(upstream *HTTPUpstream) {
 		var wg sync.WaitGroup
-		var failCount int32
+		failCount := atomic.NewInt32(0)
 		for i := 0; i < healthCheckCount; i++ {
 			wg.Add(1)
 			go func() {
@@ -236,14 +239,13 @@ func (h *HTTP) DoHealthCheck() {
 				healthy, _ := h.ping(upstream.URL)
 				// 如果失败，则加1
 				if !healthy {
-					atomic.AddInt32(&failCount, 1)
+					failCount.Inc()
 				}
 			}()
 		}
 		wg.Wait()
 
-		pStatus := &upstream.status
-		currentStatus := atomic.LoadInt32(pStatus)
+		currentStatus := upstream.status.Load()
 
 		// 如果当前upstream 设置为ignored，则忽略
 		if currentStatus == UpstreamIgnored {
@@ -251,39 +253,45 @@ func (h *HTTP) DoHealthCheck() {
 		}
 
 		status := UpstreamHealthy
-		if int(failCount) >= maxFailCount {
+		if int(failCount.Load()) >= maxFailCount {
 			status = UpstreamSick
 		}
 		// 如果状态有变更
 		if currentStatus != status {
-			atomic.StoreInt32(pStatus, status)
+			upstream.status.Store(status)
 			// 触发状态变更时的回调
 			for _, fn := range h.statusListeners {
 				fn(status, upstream)
 			}
 		}
 	}
-	// 立即执行一次health check
+	// 对所有upstream执行health check
 	for _, upstream := range h.upstreamList {
+		// ignore的不需要检测
+		if upstream.status.Load() == UpstreamIgnored {
+			continue
+		}
 		doCheck(upstream)
 	}
 }
 
 // StartHealthCheck start health check
 func (h *HTTP) StartHealthCheck() {
+	// 建议在调用start health check定时检测前，先调用一次DoHealthCheck，
+	// 之后以新的goroutine执行StartHealthCheck
 	interval := h.Interval
 	if interval == 0 {
 		interval = defaultCheckInterval
 	}
 	ticker := time.NewTicker(interval)
 
-	v := atomic.SwapInt32(&h.healthCheckStatus, healthChecking)
+	v := h.healthCheckStatus.Swap(healthChecking)
 	// 如果已经是启动状态，则退出
 	if v == healthChecking {
 		return
 	}
 	for range ticker.C {
-		v := atomic.LoadInt32(&h.healthCheckStatus)
+		v := h.healthCheckStatus.Load()
 		// 如果已停止health check，则退出
 		if v != healthChecking {
 			return
@@ -294,7 +302,7 @@ func (h *HTTP) StartHealthCheck() {
 
 // StopHealthCheck 停止health check
 func (h *HTTP) StopHealthCheck() {
-	atomic.StoreInt32(&h.healthCheckStatus, healthCheckStop)
+	h.healthCheckStatus.Store(healthCheckStop)
 }
 
 func (h *HTTP) getDivideAvailableUpstreamList() (preferredList []*HTTPUpstream, backupList []*HTTPUpstream) {
@@ -304,7 +312,7 @@ func (h *HTTP) getDivideAvailableUpstreamList() (preferredList []*HTTPUpstream, 
 	backupList = make([]*HTTPUpstream, 0, len(h.upstreamList)/2)
 	// 从当前 upstream 列表中筛选
 	for _, upstream := range h.upstreamList {
-		status := atomic.LoadInt32(&upstream.status)
+		status := upstream.status.Load()
 		if status == UpstreamHealthy {
 			if upstream.Backup {
 				backupList = append(backupList, upstream)
@@ -314,6 +322,15 @@ func (h *HTTP) getDivideAvailableUpstreamList() (preferredList []*HTTPUpstream, 
 		}
 	}
 	return
+}
+
+// 优先获取非backup的服务列表，如果都不可用，则使用backup
+func (h *HTTP) enhanceGetAvailableUpstreamList() []*HTTPUpstream {
+	preferredList, backupList := h.getDivideAvailableUpstreamList()
+	if len(preferredList) != 0 {
+		return preferredList
+	}
+	return backupList
 }
 
 // GetAvailableUpstreamList get available upstream list
@@ -338,18 +355,13 @@ func (h *HTTP) PolicyRandom() *HTTPUpstream {
 
 // PolicyRoundRobin get backend round robin
 func (h *HTTP) PolicyRoundRobin() *HTTPUpstream {
-	index := atomic.AddUint32(&h.roundRobin, 1)
+	index := h.roundRobin.Inc()
 	return h.GetAvailableUpstream(index)
 }
 
 // PolicyLeastconn get least connection backend
 func (h *HTTP) PolicyLeastconn() *HTTPUpstream {
-	preferredList, backupList := h.getDivideAvailableUpstreamList()
-
-	upstreamList := preferredList
-	if len(upstreamList) == 0 {
-		upstreamList = backupList
-	}
+	upstreamList := h.enhanceGetAvailableUpstreamList()
 	upstreamCount := uint32(len(upstreamList))
 
 	// 如果无可用backend
@@ -361,7 +373,7 @@ func (h *HTTP) PolicyLeastconn() *HTTPUpstream {
 	index := 0
 	// 查找连接数最少的 upstream
 	for i, upstream := range upstreamList {
-		v := atomic.LoadUint32(&upstream.value)
+		v := upstream.value.Load()
 		if v < leastConn {
 			leastConn = v
 			index = i
@@ -373,13 +385,7 @@ func (h *HTTP) PolicyLeastconn() *HTTPUpstream {
 
 // GetAvailableUpstream get available upstream
 func (h *HTTP) GetAvailableUpstream(index uint32) (upstream *HTTPUpstream) {
-	preferredList, backupList := h.getDivideAvailableUpstreamList()
-
-	upstreamList := preferredList
-	if len(upstreamList) == 0 {
-		upstreamList = backupList
-	}
-
+	upstreamList := h.enhanceGetAvailableUpstreamList()
 	upstreamCount := uint32(len(upstreamList))
 
 	// 如果无可用backend
@@ -402,9 +408,9 @@ func (h *HTTP) Next() (upstream *HTTPUpstream, done Done) {
 	case PolicyLeastconn:
 		upstream = h.PolicyLeastconn()
 		if upstream != nil {
-			atomic.AddUint32(&upstream.value, 1)
+			upstream.value.Inc()
 			done = func() {
-				atomic.AddUint32(&upstream.value, ^uint32(0))
+				upstream.value.Dec()
 			}
 		}
 

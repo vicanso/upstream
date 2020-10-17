@@ -30,7 +30,7 @@ func createServe(handler http.Handler) (l net.Listener, err error) {
 		srv := http.Server{
 			Handler: handler,
 		}
-		srv.Serve(l)
+		_ = srv.Serve(l)
 	}()
 	return
 }
@@ -54,11 +54,11 @@ func TestHTTPPing(t *testing.T) {
 		assert := assert.New(t)
 		ln, err := createServe(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			if req.RequestURI == "/ping" {
-				w.Write([]byte("pong"))
+				_, _ = w.Write([]byte("pong"))
 				return
 			}
 			w.WriteHeader(500)
-			w.Write([]byte("error"))
+			_, _ = w.Write([]byte("error"))
 		}))
 		assert.Nil(err, "create server should be successful")
 
@@ -102,20 +102,20 @@ func TestHealthCheck(t *testing.T) {
 		}
 		err := h.Add("http://127.0.0.1:12344")
 		assert.Nil(err, "add upstream should be successful")
-		h.GetUpstreamList()[0].status = UpstreamHealthy
+		h.GetUpstreamList()[0].status.Store(UpstreamHealthy)
 		h.DoHealthCheck()
-		assert.Equal(UpstreamSick, h.GetUpstreamList()[0].status, "upstream should be sick")
+		assert.Equal(UpstreamSick, h.GetUpstreamList()[0].status.Load(), "upstream should be sick")
 	})
 }
 
 func TestGetAvalidUpstream(t *testing.T) {
 	assert := assert.New(t)
 	h := HTTP{}
-	h.Add("http://127.0.0.1:7001")
-	h.Add("http://127.0.0.1:7002")
-	h.Add("http://127.0.0.1:7003")
+	_ = h.Add("http://127.0.0.1:7001")
+	_ = h.Add("http://127.0.0.1:7002")
+	_ = h.Add("http://127.0.0.1:7003")
 	for _, upstream := range h.upstreamList {
-		upstream.status = UpstreamHealthy
+		upstream.status.Store(UpstreamHealthy)
 	}
 
 	assert.Equal(h.upstreamList[2], h.GetAvailableUpstream(2), "get upstream by index should be successful")
@@ -137,7 +137,7 @@ func TestGetAvalidUpstream(t *testing.T) {
 		if index == 0 {
 			continue
 		}
-		upstream.status = UpstreamSick
+		upstream.status.Store(UpstreamSick)
 	}
 	for i := 0; i < 100; i++ {
 		target := h.PolicyRandom()
@@ -145,9 +145,9 @@ func TestGetAvalidUpstream(t *testing.T) {
 	}
 
 	// backup
-	h.AddBackup("http://127.0.0.1:7003")
+	_ = h.AddBackup("http://127.0.0.1:7003")
 	backupUpstream := h.upstreamList[len(h.upstreamList)-1]
-	backupUpstream.status = UpstreamHealthy
+	backupUpstream.status.Store(UpstreamHealthy)
 	for i := 0; i < 100; i++ {
 		target := h.PolicyRoundRobin()
 		assert.NotEqual(backupUpstream, target, "backup upstream shouldn't be used when there is any available upstream")
@@ -156,7 +156,7 @@ func TestGetAvalidUpstream(t *testing.T) {
 		if upstream == backupUpstream {
 			continue
 		}
-		upstream.status = UpstreamSick
+		upstream.status.Store(UpstreamSick)
 	}
 	for i := 0; i < 100; i++ {
 		target := h.PolicyRoundRobin()
@@ -168,12 +168,12 @@ func TestGetAvalidUpstream(t *testing.T) {
 	}
 
 	for _, upstream := range h.upstreamList {
-		upstream.status = UpstreamHealthy
-		upstream.value = 1
+		upstream.status.Store(UpstreamHealthy)
+		upstream.value.Store(1)
 	}
 	// 将第二个upstream 的value设置为0
 	secondUpstream := h.upstreamList[1]
-	secondUpstream.value = 0
+	secondUpstream.value.Store(0)
 	for i := 0; i < 100; i++ {
 		target := h.PolicyLeastconn()
 		assert.Equal(secondUpstream, target, "least conn policy should return least conn's upstream")
@@ -261,11 +261,11 @@ func TestConvertStatusToString(t *testing.T) {
 
 func BenchmarkRoundRobin(b *testing.B) {
 	h := HTTP{}
-	h.Add("http://127.0.0.1:7001")
-	h.Add("http://127.0.0.1:7002")
-	h.Add("http://127.0.0.1:7003")
+	_ = h.Add("http://127.0.0.1:7001")
+	_ = h.Add("http://127.0.0.1:7002")
+	_ = h.Add("http://127.0.0.1:7003")
 	for _, upstream := range h.upstreamList {
-		upstream.status = UpstreamHealthy
+		upstream.status.Store(UpstreamHealthy)
 	}
 
 	b.ReportAllocs()
@@ -276,11 +276,11 @@ func BenchmarkRoundRobin(b *testing.B) {
 
 func BenchmarkLeastConn(b *testing.B) {
 	h := HTTP{}
-	h.Add("http://127.0.0.1:7001")
-	h.Add("http://127.0.0.1:7002")
-	h.Add("http://127.0.0.1:7003")
+	_ = h.Add("http://127.0.0.1:7001")
+	_ = h.Add("http://127.0.0.1:7002")
+	_ = h.Add("http://127.0.0.1:7003")
 	for _, upstream := range h.upstreamList {
-		upstream.status = UpstreamHealthy
+		upstream.status.Store(UpstreamHealthy)
 	}
 
 	b.ReportAllocs()
