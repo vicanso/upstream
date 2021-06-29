@@ -1,6 +1,6 @@
 # upstream
 
-[![Build Status](https://img.shields.io/travis/vicanso/upstream.svg?label=linux+build)](https://travis-ci.org/vicanso/upstream)
+[![Build Status](https://github.com/vicanso/upstream/workflows/Test/badge.svg)](https://github.com/upstream/elton/actions)
 
 
 It's easy to get upstream from upstream list. It support http request check or tcp port check.
@@ -11,6 +11,8 @@ uh := upstream.HTTP{
   // use http request check
   Ping: "/ping",
 }
+uh.OnStatus(func(status int32, upstream *upstream.HTTPUpstream) {
+})
 uh.Add("http://127.0.0.1:7001")
 uh.AddBackup("http://127.0.0.1:7002")
 // do health check

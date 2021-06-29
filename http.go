@@ -1,6 +1,7 @@
 package upstream
 
 import (
+	"crypto/tls"
 	"math/rand"
 	"net"
 	"net/http"
@@ -48,6 +49,23 @@ const (
 	defaultHealthCheckCount = 5
 	defaultMaxFailCount     = 2
 )
+
+var httpTransport = &http.Transport{
+	Proxy: http.ProxyFromEnvironment,
+	DialContext: (&net.Dialer{
+		Timeout:   30 * time.Second,
+		KeepAlive: 30 * time.Second,
+	}).DialContext,
+	ForceAttemptHTTP2:     true,
+	MaxIdleConns:          10,
+	IdleConnTimeout:       90 * time.Second,
+	TLSHandshakeTimeout:   10 * time.Second,
+	ExpectContinueTimeout: 1 * time.Second,
+	TLSClientConfig: &tls.Config{
+		// upstream主要用于内部的检测，因此忽略tls证书
+		InsecureSkipVerify: true,
+	},
+}
 
 type (
 	// Done done function for upstream
@@ -197,7 +215,8 @@ func (h *HTTP) ping(info *url.URL) (healthy bool, err error) {
 	}
 	// 如果配置了ping，则将用http 请求，判断返回码
 	client := &http.Client{
-		Timeout: timeout,
+		Timeout:   timeout,
+		Transport: httpTransport,
 	}
 	pingURL := info.String() + h.Ping
 	req, err := http.NewRequest(http.MethodGet, pingURL, nil)
@@ -236,6 +255,7 @@ func (h *HTTP) DoHealthCheck() {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
+				// 出错也忽略，只判断是否检测成功则可
 				healthy, _ := h.ping(upstream.URL)
 				// 如果失败，则加1
 				if !healthy {
@@ -280,7 +300,7 @@ func (h *HTTP) StartHealthCheck() {
 	// 建议在调用start health check定时检测前，先调用一次DoHealthCheck，
 	// 之后以新的goroutine执行StartHealthCheck
 	interval := h.Interval
-	if interval == 0 {
+	if interval <= 0 {
 		interval = defaultCheckInterval
 	}
 	ticker := time.NewTicker(interval)
