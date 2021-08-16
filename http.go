@@ -370,6 +370,7 @@ func (h *HTTP) PolicyFirst() *HTTPUpstream {
 
 // PolicyRandom get random backend
 func (h *HTTP) PolicyRandom() *HTTPUpstream {
+	rand.Seed(time.Now().UnixNano())
 	return h.GetAvailableUpstream(rand.Uint32())
 }
 
