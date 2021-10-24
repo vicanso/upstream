@@ -110,18 +110,17 @@ type (
 )
 
 // portCheck the port check
-func portCheck(network, ip, port string, timeout time.Duration) (healthy bool, err error) {
+func portCheck(network, ip, port string, timeout time.Duration) (bool, error) {
 	addr := ip
 	if port != "" {
 		addr = net.JoinHostPort(ip, port)
 	}
 	conn, err := net.DialTimeout(network, addr, timeout)
 	if err != nil {
-		return
+		return false, err
 	}
 	defer conn.Close()
-	healthy = true
-	return
+	return true, nil
 }
 
 // ConvertStatusToString convert status to string
@@ -139,13 +138,13 @@ func ConvertStatusToString(status int32) string {
 }
 
 // Inc increase value of upstream
-func (hu *HTTPUpstream) Inc() {
-	hu.value.Inc()
+func (hu *HTTPUpstream) Inc() uint32 {
+	return hu.value.Inc()
 }
 
 // Dec decrease value o upstream
-func (hu *HTTPUpstream) Dec() {
-	hu.value.Dec()
+func (hu *HTTPUpstream) Dec() uint32 {
+	return hu.value.Dec()
 }
 
 // Healthy set the http upstream to be healthy
@@ -174,10 +173,10 @@ func (hu *HTTPUpstream) StatusDesc() string {
 	return ConvertStatusToString(v)
 }
 
-func (h *HTTP) addUpstream(upstream string, backup bool) (err error) {
+func (h *HTTP) addUpstream(upstream string, backup bool) error {
 	info, err := url.Parse(upstream)
 	if err != nil {
-		return
+		return err
 	}
 	if h.upstreamList == nil {
 		h.upstreamList = make([]*HTTPUpstream, 0)
@@ -186,21 +185,21 @@ func (h *HTTP) addUpstream(upstream string, backup bool) (err error) {
 		URL:    info,
 		Backup: backup,
 	})
-	return
+	return nil
 }
 
 // Add add upstream
-func (h *HTTP) Add(upstream string) (err error) {
+func (h *HTTP) Add(upstream string) error {
 	return h.addUpstream(upstream, false)
 }
 
 // AddBackup add backup stream
-func (h *HTTP) AddBackup(upstream string) (err error) {
+func (h *HTTP) AddBackup(upstream string) error {
 	return h.addUpstream(upstream, true)
 }
 
 // ping health check ping
-func (h *HTTP) ping(info *url.URL) (healthy bool, err error) {
+func (h *HTTP) ping(info *url.URL) (bool, error) {
 	timeout := h.Timeout
 	if timeout == 0 {
 		timeout = defaultTimeout
@@ -221,19 +220,19 @@ func (h *HTTP) ping(info *url.URL) (healthy bool, err error) {
 	pingURL := info.String() + h.Ping
 	req, err := http.NewRequest(http.MethodGet, pingURL, nil)
 	if err != nil {
-		return
+		return false, err
 	}
 	req.Header.Set("User-Agent", UserAgent)
 	resp, err := client.Do(req)
 	if err != nil {
-		return
+		return false, err
 	}
 	defer resp.Body.Close()
 	statusCode := resp.StatusCode
 	if statusCode >= http.StatusOK && statusCode < http.StatusBadRequest {
-		healthy = true
+		return true, nil
 	}
-	return
+	return false, nil
 }
 
 // DoHealthCheck do health check
@@ -325,11 +324,11 @@ func (h *HTTP) StopHealthCheck() {
 	h.healthCheckStatus.Store(healthCheckStop)
 }
 
-func (h *HTTP) getDivideAvailableUpstreamList() (preferredList []*HTTPUpstream, backupList []*HTTPUpstream) {
+func (h *HTTP) getDivideAvailableUpstreamList() ([]*HTTPUpstream, []*HTTPUpstream) {
 	// 优先使用的 upstream
-	preferredList = make([]*HTTPUpstream, 0, len(h.upstreamList))
+	preferredList := make([]*HTTPUpstream, 0, len(h.upstreamList))
 	// 备份使用的 upstream
-	backupList = make([]*HTTPUpstream, 0, len(h.upstreamList)/2)
+	backupList := make([]*HTTPUpstream, 0, len(h.upstreamList)/2)
 	// 从当前 upstream 列表中筛选
 	for _, upstream := range h.upstreamList {
 		status := upstream.status.Load()
@@ -341,7 +340,7 @@ func (h *HTTP) getDivideAvailableUpstreamList() (preferredList []*HTTPUpstream, 
 			}
 		}
 	}
-	return
+	return preferredList, backupList
 }
 
 // 优先获取非backup的服务列表，如果都不可用，则使用backup
@@ -354,13 +353,13 @@ func (h *HTTP) enhanceGetAvailableUpstreamList() []*HTTPUpstream {
 }
 
 // GetAvailableUpstreamList get available upstream list
-func (h *HTTP) GetAvailableUpstreamList() (upstreamList []*HTTPUpstream) {
-	upstreamList = make([]*HTTPUpstream, 0, len(h.upstreamList))
+func (h *HTTP) GetAvailableUpstreamList() []*HTTPUpstream {
+	upstreamList := make([]*HTTPUpstream, 0, len(h.upstreamList))
 	preferredList, backupList := h.getDivideAvailableUpstreamList()
 	// 合并返回
 	upstreamList = append(upstreamList, preferredList...)
 	upstreamList = append(upstreamList, backupList...)
-	return
+	return upstreamList
 }
 
 // PolicyFirst get the first backend
@@ -420,25 +419,29 @@ func (h *HTTP) GetAvailableUpstream(index uint32) (upstream *HTTPUpstream) {
 }
 
 // Next get the next available upstream by policy
-func (h *HTTP) Next() (upstream *HTTPUpstream, done Done) {
+func (h *HTTP) Next(index ...uint32) (*HTTPUpstream, Done) {
+	if len(index) != 0 {
+		return h.GetAvailableUpstream(index[0]), nil
+	}
 	switch h.Policy {
 	case PolicyFirst:
-		upstream = h.PolicyFirst()
+		return h.PolicyFirst(), nil
 	case PolicyRandom:
-		upstream = h.PolicyRandom()
+		return h.PolicyRandom(), nil
 	case PolicyLeastconn:
-		upstream = h.PolicyLeastconn()
+		upstream := h.PolicyLeastconn()
+		var done Done
 		if upstream != nil {
 			upstream.value.Inc()
 			done = func() {
 				upstream.value.Dec()
 			}
 		}
+		return upstream, done
 
 	default:
-		upstream = h.PolicyRoundRobin()
+		return h.PolicyRoundRobin(), nil
 	}
-	return
 }
 
 // OnStatus add listener for status event

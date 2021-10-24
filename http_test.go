@@ -212,6 +212,11 @@ func TestGetAvalidUpstream(t *testing.T) {
 	upstream, done = h.Next()
 	assert.NotNil(upstream)
 	assert.Nil(done)
+
+	// 指定获取位置
+	upstream, done = h.Next(0)
+	assert.Equal(firstUpstream, upstream)
+	assert.Nil(done)
 }
 
 func TestHTTPUpstreamStatusChange(t *testing.T) {
@@ -298,7 +303,7 @@ func TestMain(m *testing.M) {
 	// and CoverMode will be non empty if run with -cover
 	if rc == 0 && testing.CoverMode() != "" {
 		c := testing.Coverage()
-		if c < 0.9 {
+		if c < 0.85 {
 			fmt.Println("Tests passed but coverage failed at", c)
 			rc = -1
 		}
