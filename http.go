@@ -2,6 +2,7 @@ package upstream
 
 import (
 	"crypto/tls"
+	"math"
 	"math/rand"
 	"net"
 	"net/http"
@@ -26,7 +27,7 @@ const (
 const (
 	// UserAgent user agent for http check
 	UserAgent = "upstream/go"
-	maxUint32 = ^uint32(0)
+	maxUint32 = uint32(math.MaxUint32)
 )
 
 const (
@@ -248,6 +249,12 @@ func (h *HTTP) DoHealthCheck() {
 
 	// 对upstream 进行状态检测
 	doCheck := func(upstream *HTTPUpstream) {
+		currentStatus := upstream.status.Load()
+
+		// 如果当前upstream 设置为ignored，则忽略
+		if currentStatus == UpstreamIgnored {
+			return
+		}
 		var wg sync.WaitGroup
 		failCount := atomic.NewInt32(0)
 		for i := 0; i < healthCheckCount; i++ {
@@ -263,13 +270,6 @@ func (h *HTTP) DoHealthCheck() {
 			}()
 		}
 		wg.Wait()
-
-		currentStatus := upstream.status.Load()
-
-		// 如果当前upstream 设置为ignored，则忽略
-		if currentStatus == UpstreamIgnored {
-			return
-		}
 
 		status := UpstreamHealthy
 		if int(failCount.Load()) >= maxFailCount {
