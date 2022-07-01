@@ -85,6 +85,8 @@ type (
 	}
 	// HTTP http upstream
 	HTTP struct {
+		// Host the http host
+		Host string
 		// Ping http ping url
 		Ping string
 		// Timeout timeout for health check
@@ -222,6 +224,9 @@ func (h *HTTP) ping(info *url.URL) (bool, error) {
 	req, err := http.NewRequest(http.MethodGet, pingURL, nil)
 	if err != nil {
 		return false, err
+	}
+	if h.Host != "" {
+		req.Host = h.Host
 	}
 	req.Header.Set("User-Agent", UserAgent)
 	resp, err := client.Do(req)
