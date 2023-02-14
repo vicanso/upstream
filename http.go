@@ -374,7 +374,7 @@ func (h *HTTP) PolicyFirst() *HTTPUpstream {
 
 // PolicyRandom get random backend
 func (h *HTTP) PolicyRandom() *HTTPUpstream {
-	rand.Seed(time.Now().UnixNano())
+	// go 1.20之后不再需要设置rand.Seed
 	return h.GetAvailableUpstream(rand.Uint32())
 }
 
